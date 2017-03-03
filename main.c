@@ -11,7 +11,34 @@
 #include "tcp.h"
 
 #define BUFFER_SIZE 1024
-#define GUID "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+#define GUID "258EAFA5-E
+/*-------------------------------------------------------------------
+0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-------+-+-------------+-------------------------------+
+|F|R|R|R| opcode|M| Payload len |    Extended payload length    |
+|I|S|S|S|  (4)  |A|     (7)     |             (16/64)           |
+|N|V|V|V|       |S|             |   (if payload len==126/127)   |
+| |1|2|3|       |K|             |                               |
++-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
+|     Extended payload length continued, if payload len == 127  |
++ - - - - - - - - - - - - - - - +-------------------------------+
+|                               |Masking-key, if MASK set to 1  |
++-------------------------------+-------------------------------+
+| Masking-key (continued)       |          Payload Data         |
++-------------------------------- - - - - - - - - - - - - - - - +
+:                     Payload Data continued ...                :
++ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
+|                     Payload Data continued ...                |
++---------------------------------------------------------------+
+--------------------------------------------------------------------*/
+typedef struct _frame_head {
+    char fin;
+    char opcode;
+    char mask;
+    unsigned long long payload_length;
+    char masking_key[4];
+}frame_head;
 
 int base64_encode(char *in_str, int in_len, char *out_str)
 {
@@ -38,6 +65,14 @@ int base64_encode(char *in_str, int in_len, char *out_str)
     return size;
 }
 
+/**
+ * @brief _readline
+ * read a line string from all buffer
+ * @param allbuf
+ * @param level
+ * @param linebuf
+ * @return
+ */
 int _readline(char* allbuf,int level,char* linebuf)
 {
     int len = strlen(allbuf);
@@ -62,7 +97,7 @@ int shakehands(int cli_fd)
     //Sec-WebSocket-Accept
     char sec_accept[32];
     //sha1 data
-    unsigned char sha1_data[SHA_DIGEST_LENGTH]={0};
+    unsigned char sha1_data[SHA_DIGEST_LENGTH+1]={0};
     //reponse head buffer
     char head[BUFFER_SIZE] = {0};
 
@@ -78,11 +113,11 @@ int shakehands(int cli_fd)
 
         if (strstr(linebuf,"Sec-WebSocket-Key")!=NULL)
         {
-            strcat(linebuf,"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+            strcat(linebuf,GUID);
 //            printf("key:%s\nlen=%d\n",linebuf+19,strlen(linebuf+19));
             SHA1((unsigned char*)&linebuf+19,strlen(linebuf+19),(unsigned char*)&sha1_data);
 //            printf("sha1:%s\n",sha1_data);
-            base64_encode(sha1_data,strlen(sha1_data)-2,sec_accept);
+            base64_encode(sha1_data,strlen(sha1_data),sec_accept);
 //            printf("base64:%s\n",sec_accept);
             /* write the response */
             sprintf(head, "HTTP/1.1 101 Switching Protocols\r\n" \
@@ -98,6 +133,71 @@ int shakehands(int cli_fd)
         }
     }while((buffer[level]!='\r' || buffer[level+1]!='\n') && level!=-1);
     return 0;
+}
+
+int read_frame_head(int fd,frame_head* head)
+{
+    char fin, maskFlag,masks[4];
+    char * payloadData;
+    char temp[8];
+    unsigned long n, payloadLen=0;
+    int i=0;
+
+    if (bufLen < 2)
+    {
+        return NULL;
+    }
+
+    fin = (buf[0] & 0x80) == 0x80; // 1bit，1表示最后一帧
+    if (!fin)
+    {
+        return NULL;// 超过一帧暂不处理
+    }
+
+    maskFlag = (buf[1] & 0x80) == 0x80; // 是否包含掩码
+    if (!maskFlag)
+    {
+        return NULL;// 不包含掩码的暂不处理
+    }
+
+    payloadLen = buf[1] & 0x7F; // 数据长度
+    if (payloadLen == 126)
+    {
+        memcpy(masks,buf+4, 4);
+        payloadLen =(buf[2]&0xFF) << 8 | (buf[3]&0xFF);
+        payloadData=(char *)malloc(payloadLen);
+        memset(payloadData,0,payloadLen);
+        memcpy(payloadData,buf+8,payloadLen);
+    }
+    else if (payloadLen == 127)
+    {
+        memcpy(masks,buf+10,4);
+        for ( i = 0; i < 8; i++)
+        {
+            temp[i] = buf[9 - i];
+        }
+
+        memcpy(&n,temp,8);
+        payloadData=(char *)malloc(n);
+        memset(payloadData,0,n);
+        memcpy(payloadData,buf+14,n);//toggle error(core dumped) if data is too long.
+        payloadLen=n;
+    }
+    else
+    {
+        memcpy(masks,buf+2,4);
+        payloadData=(char *)malloc(payloadLen);
+        memset(payloadData,0,payloadLen);
+        memcpy(payloadData,buf+6,payloadLen);
+    }
+
+    for (i = 0; i < payloadLen; i++)
+    {
+        payloadData[i] = (char)(payloadData[i] ^ masks[i % 4]);
+    }
+
+    printf("data(%d):%s\n",payloadLen,payloadData);
+    return payloadData;
 }
 
 int main()
