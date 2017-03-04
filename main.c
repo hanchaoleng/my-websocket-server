@@ -137,67 +137,61 @@ int shakehands(int cli_fd)
 
 int read_frame_head(int fd,frame_head* head)
 {
-    char fin, maskFlag,masks[4];
-    char * payloadData;
-    char temp[8];
-    unsigned long n, payloadLen=0;
-    int i=0;
-
-    if (bufLen < 2)
+    char one_char;
+    /*read fin and op code*/
+    if (read(fd,&one_char,1)<0)
     {
-        return NULL;
+        perror("read fin");
+        return -1;
     }
-
-    fin = (buf[0] & 0x80) == 0x80; // 1bit，1表示最后一帧
-    if (!fin)
+    head->fin = (one_char & 0x80) == 0x80;
+    head->opcode = one_char & 0x0F;
+    if (read(fd,&one_char,1)<0)
     {
-        return NULL;// 超过一帧暂不处理
+        perror("read mask");
+        return -1;
     }
+    head->mask = (one_char & 0x80) == 0X80;
 
-    maskFlag = (buf[1] & 0x80) == 0x80; // 是否包含掩码
-    if (!maskFlag)
-    {
-        return NULL;// 不包含掩码的暂不处理
-    }
+    /*get payload length*/
+    head->payload_length = one_char & 0x7F;
 
-    payloadLen = buf[1] & 0x7F; // 数据长度
-    if (payloadLen == 126)
+    if (head->payload_length == 126)
     {
-        memcpy(masks,buf+4, 4);
-        payloadLen =(buf[2]&0xFF) << 8 | (buf[3]&0xFF);
-        payloadData=(char *)malloc(payloadLen);
-        memset(payloadData,0,payloadLen);
-        memcpy(payloadData,buf+8,payloadLen);
-    }
-    else if (payloadLen == 127)
-    {
-        memcpy(masks,buf+10,4);
-        for ( i = 0; i < 8; i++)
+        char extern_len[2];
+        if (read(fd,extern_len,2)<0)
         {
-            temp[i] = buf[9 - i];
+            perror("read extern_len");
+            return -1;
         }
-
-        memcpy(&n,temp,8);
-        payloadData=(char *)malloc(n);
-        memset(payloadData,0,n);
-        memcpy(payloadData,buf+14,n);//toggle error(core dumped) if data is too long.
-        payloadLen=n;
+        head->payload_length = (extern_len[0]&0xFF) << 8 | (extern_len[1]&0xFF);
     }
-    else
+    else if (head->payload_length == 127)
     {
-        memcpy(masks,buf+2,4);
-        payloadData=(char *)malloc(payloadLen);
-        memset(payloadData,0,payloadLen);
-        memcpy(payloadData,buf+6,payloadLen);
+        char extern_len[8],temp;
+        int i;
+        if (read(fd,extern_len,8)<0)
+        {
+            perror("read extern_len");
+            return -1;
+        }
+        for(i=0;i<4;i++)
+        {
+            temp = extern_len[i];
+            extern_len[i] = extern_len[7-i];
+            extern_len[7-i] = temp;
+        }
+        memcpy(&(head->payload_length),extern_len,8);
     }
 
-    for (i = 0; i < payloadLen; i++)
+    /*read masking-key*/
+    if (read(fd,head->masking_key,4)<0)
     {
-        payloadData[i] = (char)(payloadData[i] ^ masks[i % 4]);
+        perror("read masking-key");
+        return -1;
     }
 
-    printf("data(%d):%s\n",payloadLen,payloadData);
-    return payloadData;
+    return 0;
 }
 
 int main()
