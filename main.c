@@ -338,7 +338,10 @@ int main(int argc, char *argv[])
             do
             {
                 // read payload data
-                int rul = read(conn, payload_data, sizeof(payload_data));
+                int read_data_size = head.payload_length;
+                if (head.payload_length > read_data_size)
+                    read_data_size = sizeof(payload_data);
+                int rul = read(conn, payload_data, read_data_size);
                 if (rul <= 0)
                     break;
                 size += rul;
