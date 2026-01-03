@@ -104,7 +104,7 @@ int shakehands(int cli_fd)
     // Sec-WebSocket-Accept
     char sec_accept[32];
     // sha1 data
-    unsigned char sha1_data[SHA_DIGEST_LENGTH + 1] = {0};
+    unsigned char sha1_data[SHA_DIGEST_LENGTH] = {0};
     // reponse head buffer
     char head[BUFFER_SIZE] = {0};
 
@@ -122,11 +122,9 @@ int shakehands(int cli_fd)
         if (strstr(linebuf, "Sec-WebSocket-Key") != NULL)
         {
             strcat(linebuf, GUID);
-            //            printf("key:%s\nlen=%d\n",linebuf+19,strlen(linebuf+19));
+            printf("key:%s\nlen=%zu\n", linebuf + 19, strlen(linebuf + 19));
             SHA1((unsigned char *)&linebuf + 19, strlen(linebuf + 19), (unsigned char *)&sha1_data);
-            //            printf("sha1:%s\n",sha1_data);
-            base64_encode(sha1_data, strlen(sha1_data), sec_accept);
-            //            printf("base64:%s\n",sec_accept);
+            base64_encode(sha1_data, sizeof(sha1_data), sec_accept);
             /* write the response */
             sprintf(head, "HTTP/1.1 101 Switching Protocols\r\n"
                           "Upgrade: websocket\r\n"
