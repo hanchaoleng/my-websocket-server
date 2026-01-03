@@ -287,7 +287,7 @@ int main(int argc, char *argv[])
 
         if (head.opcode == OPCODE_CLOSE)
         {
-            char close_frame[2] = {OPCODE_FIN | OPCODE_CLOSE, 0};
+            char close_frame[4] = {OPCODE_FIN | OPCODE_CLOSE, 0x02, 0x03, 0xE8};
             if (write(conn, close_frame, sizeof(close_frame)) <= 0)
                 perror("write close frame");
             printf("Connection is closed\n");
