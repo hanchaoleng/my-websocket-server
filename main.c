@@ -233,12 +233,10 @@ int send_frame_head(int fd,frame_head* head)
     }
     else
     {
-        //no code
         response_head = (char*)malloc(12);
-//        response_head[0] = 0x81;
-//        response_head[1] = 127;
-//        response_head[2] = (head->payload_length >> 8 & 0xFF);
-//        response_head[3] = (head->payload_length & 0xFF);
+        response_head[0] = 0x81;
+        response_head[1] = 127;
+        memcpy(response_head + 2, &(head->payload_length), sizeof(unsigned long long));
         head_length = 12;
     }
 
